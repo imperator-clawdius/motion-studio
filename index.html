@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Motion Studio</title>
+<style>
+  html,body{margin:0;padding:0;overflow:hidden;background:#08080f;}
+  canvas{display:block;}
+</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(function(){
+const W=1920,H=1080;
+const c=document.getElementById('c');c.width=W;c.height=H;
+const x=c.getContext('2d');
+const TAU=Math.PI*2;
+const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+const lerp=(a,b,t)=>a+(b-a)*t;
+const easeOutCubic=t=>1-Math.pow(1-t,3);
+const easeInOut=t=>t<0.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2;
+const easeOutBack=t=>{const c1=1.70158,c3=c1+1;return 1+c3*Math.pow(t-1,3)+c1*Math.pow(t-1,2);};
+
+function hsl(h,s,l,a){return `hsla(${h},${s}%,${l}%,${a})`;}
+
+// deterministic PRNG for particles
+function prng(seed){return function(){seed=(seed*1664525+1013904223)>>>0;return seed/4294967296;};}
+const rnd=prng(42);
+const PARTICLES=Array.from({length:70},()=>({px:rnd()*W,py:rnd()*H,pr:1+rnd()*2.5,ps:0.15+rnd()*0.6,ph:rnd()*TAU,ph2:rnd()*TAU}));
+
+function drawBackground(t){
+  const g=x.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#07070e');
+  g.addColorStop(0.55,'#0c0b18');
+  g.addColorStop(1,'#120f20');
+  x.fillStyle=g;x.fillRect(0,0,W,H);
+  // two drifting glows
+  const h1=210+60*Math.sin(t*0.45);
+  const h2=310+50*Math.sin(t*0.33+2.2);
+  const gx=W/2+Math.sin(t*0.4)*W*0.2;
+  const gy=H*0.45+Math.cos(t*0.3)*H*0.12;
+  const rg=x.createRadialGradient(gx,gy,0,gx,gy,W*0.6);
+  rg.addColorStop(0,hsl(h1,85,30,0.6));
+  rg.addColorStop(0.5,hsl(h2,75,18,0.25));
+  rg.addColorStop(1,'rgba(0,0,0,0)');
+  x.fillStyle=rg;x.fillRect(0,0,W,H);
+}
+
+function drawParticles(t){
+  x.save();
+  for(const p of PARTICLES){
+    const y=((p.py - t*22*p.ps)%H+H)%H;
+    const sway=Math.sin(t*0.8+p.ph)*24;
+    const a=0.10+0.22*Math.sin(t*p.ps*3+p.ph2);
+    x.beginPath();x.arc(p.px+sway,y,p.pr,0,TAU);
+    x.fillStyle=`rgba(255,255,255,${Math.max(0,a)})`;
+    x.fill();
+  }
+  x.restore();
+}
+
+// numbered label top-left
+function drawLabel(num,accent,t,t0){
+  const a=clamp((t-t0)/0.4,0,1);
+  const yo=(1-easeOutCubic(clamp((t-t0)/0.5,0,1)))*16;
+  x.save();x.globalAlpha=a;
+  x.font=`600 40px Poppins, sans-serif`;
+  x.textAlign='left';x.textBaseline='middle';
+  x.fillStyle=accent;
+  x.fillText(num,W*0.09,H*0.12+yo);
+  x.restore();
+}
+
+function drawWord(word,cx,cy,size,t,t0,fill){
+  x.textBaseline='alphabetic';
+  x.font=`${size}px Anton, sans-serif`;
+  const spacing=size*0.07;
+  let w=0;const ws=[];
+  for(let i=0;i<word.length;i++){ws[i]=x.measureText(word[i]).width;w+=ws[i];}
+  w+=spacing*(word.length-1);
+  let cur=cx-w/2;
+  for(let i=0;i<word.length;i++){
+    const lt=t-(t0+i*0.07);
+    const p=clamp(lt/0.45,0,1);
+    const e=easeOutBack(p);
+    const a=clamp(lt/0.15,0,1);
+    const yoff=(1-e)*size*0.5;
+    x.save();
+    x.globalAlpha=a;
+    x.translate(cur+ws[i]/2,cy+yoff);
+    x.scale(e,e);
+    x.textAlign='center';
+    x.fillStyle=fill;
+    x.fillText(word[i],0,0);
+    x.restore();
+    cur+=ws[i]+spacing;
+  }
+}
+
+function drawSub(text,cx,cy,size,t,t0,fill){
+  const a=clamp((t-t0)/0.5,0,1);
+  const yoff=(1-easeOutCubic(clamp((t-t0)/0.6,0,1)))*20;
+  x.save();x.globalAlpha=a;
+  x.font=`600 ${size}px Poppins, sans-serif`;
+  x.textAlign='center';x.textBaseline='middle';
+  x.fillStyle=fill;x.fillText(text,cx,cy+yoff);
+  x.restore();
+}
+
+function underline(cx,cy,hw,accent,t,t0){
+  const lp=clamp((t-t0)/0.7,0,1);
+  const le=easeInOut(lp);
+  x.save();
+  x.strokeStyle=accent;x.lineWidth=5;
+  x.lineCap='round';
+  x.beginPath();
+  x.moveTo(cx-le*hw,cy);x.lineTo(cx+le*hw,cy);
+  x.stroke();
+  x.restore();
+}
+
+const ACCENTS=[200,300,170,45,45]; // per-shot accent hue
+
+// Shot 1 — MOTION
+function shot1(t){
+  const ac=hsl(ACCENTS[0],90,60,1);
+  drawLabel('01',ac,t,0.1);
+  drawWord('MOTION',W/2,H*0.46,250,t,0.2,hsl(0,0,100,1));
+  underline(W/2,H*0.64,520,ac,t,0.4);
+  drawSub('A DETERMINISTIC SHOWREEL',W/2,H*0.72,36,t,2.0,'rgba(255,255,255,0.75)');
+}
+
+// Shot 2 — MORPH with trails
+function shot2(t){
+  const ac=hsl(ACCENTS[1],85,60,1);
+  drawLabel('02',ac,t,0.1);
+  const cx=W/2,cy=H/2;
+  const size=280+50*Math.sin(t*TAU*2/3);
+  const radius=lerp(150,30,(Math.sin(t*TAU/3)+1)/2);
+  const rot=t*TAU*0.3;
+  // trail ghosts
+  for(let k=1;k<=3;k++){
+    const tt=clamp(t-k*0.06,0,3);
+    const tsize=280+50*Math.sin(tt*TAU*2/3);
+    const trad=lerp(150,30,(Math.sin(tt*TAU/3)+1)/2);
+    const trot=tt*TAU*0.3;
+    x.save();
+    x.globalAlpha=0.10*(4-k)/4;
+    x.translate(cx,cy);x.rotate(trot);
+    x.fillStyle=hsl(ACCENTS[1],80,55,0.5);
+    roundRect(x,tsize,tsize,trad);x.fill();
+    x.restore();
+  }
+  x.save();
+  x.translate(cx,cy);x.rotate(rot);
+  const g=x.createLinearGradient(-size/2,-size/2,size/2,size/2);
+  g.addColorStop(0,hsl(ACCENTS[1],85,58,0.95));
+  g.addColorStop(1,hsl(ACCENTS[1]+60,90,48,0.95));
+  x.fillStyle=g;
+  roundRect(x,size,size,radius);x.fill();
+  x.restore();
+  // orbit ring
+  x.save();x.strokeStyle=hsl(ACCENTS[1],70,60,0.4);x.lineWidth=2;
+  x.beginPath();x.arc(cx,cy,420,0,TAU);x.stroke();x.restore();
+  for(let i=0;i<6;i++){
+    const ang=t*TAU/3+i*TAU/6;
+    const ox=cx+Math.cos(ang)*420;
+    const oy=cy+Math.sin(ang)*340;
+    x.beginPath();x.arc(ox,oy,9,0,TAU);
+    x.fillStyle=hsl(45,90,60,0.85);x.fill();
+  }
+  drawSub('MORPH',W/2,H*0.85,26,t,0.3,'rgba(255,255,255,0.5)');
+}
+
+function roundRect(x,sx,sy,rr){
+  const hw=sx/2,hh=sy/2,r=Math.max(2,Math.min(rr,hw,hh));
+  x.beginPath();
+  x.moveTo(-hw+r,-hh);
+  x.arcTo(hw,-hh,hw,hh,r);
+  x.arcTo(hw,hh,-hw,hh,r);
+  x.arcTo(-hw,hh,-hw,-hh,r);
+  x.arcTo(-hw,-hh,hw,-hh,r);
+  x.closePath();
+}
+
+// Shot 3 — DESIGN + camera
+function shot3(t){
+  const ac=hsl(ACCENTS[2],90,60,1);
+  const zoom=1+0.22*easeInOut(clamp(t/3,0,1));
+  x.save();
+  x.translate(W/2,H/2);x.scale(zoom,zoom);x.translate(-W/2,-H/2);
+  drawLabel('03',ac,t,0.1);
+  drawWord('DESIGN',W/2,H*0.5,255,t,0.2,hsl(0,0,100,1));
+  x.restore();
+  for(let i=0;i<4;i++){
+    const lp=clamp((t-(0.2+i*0.3))/0.7,0,1);
+    const y=H*0.25+i*160;
+    x.save();
+    x.strokeStyle=hsl(ACCENTS[2],85,60,0.55*(1-lp));
+    x.lineWidth=2;
+    x.beginPath();x.moveTo(0,y);x.lineTo(W*lp,y);x.stroke();
+    x.restore();
+  }
+}
+
+// Shot 4 — STUDIO + designed grid
+function shot4(t){
+  const ac=hsl(ACCENTS[3],90,60,1);
+  drawLabel('04',ac,t,0.1);
+  drawWord('STUDIO',W/2,H*0.46,240,t,0.2,hsl(0,0,100,1));
+  underline(W/2,H*0.62,460,ac,t,0.5);
+  // grid grows from center
+  const gp=clamp((t-0.5)/2.2,0,1);
+  x.save();
+  for(let gx=0;gx<=12;gx++){
+    for(let gy=0;gy<=7;gy++){
+      const px=gx/12*W, py=gy/7*H;
+      const d=Math.sin(gp*TAU+(gx+gy)*0.6);
+      x.beginPath();x.arc(px,py,2+1.5*d,0,TAU);
+      x.fillStyle=hsl(ACCENTS[3],80,60,0.2+0.4*Math.max(0,d));
+      x.fill();
+    }
+  }
+  x.restore();
+}
+
+// Shot 5 — lockup
+function shot5(t){
+  const ac=hsl(ACCENTS[4],90,60,1);
+  const cx=W/2,cy=H*0.44;
+  const rp=clamp(t/1.4,0,1);
+  const r=easeInOut(rp);
+  x.save();
+  x.strokeStyle=ac;x.lineWidth=6;
+  x.beginPath();x.arc(cx,cy,95,-Math.PI/2,-Math.PI/2+r*TAU);x.stroke();
+  x.restore();
+  drawSub('MOTION STUDIO',W/2,cy,60,t,0.4,'rgba(255,255,255,0.97)');
+  drawSub('DETERMINISTIC MOTION DESIGN',W/2,H*0.7,28,t,0.8,'rgba(255,255,255,0.55)');
+  underline(W/2,H*0.78,300,ac,t,1.2);
+}
+
+function vignette(){
+  const g=x.createRadialGradient(W/2,H/2,H*0.5,W/2,H/2,H*0.85);
+  g.addColorStop(0,'rgba(0,0,0,0)');
+  g.addColorStop(1,'rgba(0,0,0,0.6)');
+  x.fillStyle=g;x.fillRect(0,0,W,H);
+}
+
+function boundaryDip(t){
+  let d=1;
+  for(const b of [3,6,9,12]){
+    const dt=Math.abs(t-b);
+    if(dt<0.28)d=Math.min(d,dt/0.28);
+  }
+  return d;
+}
+
+window.seek=function(t){
+  x.clearRect(0,0,W,H);
+  drawBackground(t);
+  drawParticles(t);
+  if(t<3) shot1(t);
+  else if(t<6) shot2(t-3);
+  else if(t<9) shot3(t-6);
+  else if(t<12) shot4(t-9);
+  else shot5(t-12);
+  vignette();
+  const dip=boundaryDip(t);
+  if(dip<1){x.fillStyle=`rgba(0,0,0,${(1-dip)})`;x.fillRect(0,0,W,H);}
+  if(t>14.6){x.fillStyle=`rgba(0,0,0,${(t-14.6)/0.4})`;x.fillRect(0,0,W,H);}
+};
+seek(0);
+})();
+</script>
+</body>
+</html>
